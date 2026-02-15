@@ -1,0 +1,4 @@
+vmlinux.h
+*.o
+*.skel.h
+bpf_lsm_policy_loader

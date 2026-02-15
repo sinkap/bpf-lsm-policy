@@ -1,0 +1,15 @@
+[Unit]
+Description=BPF LSM Policy Loader
+After=local-fs.target
+Requires=local-fs.target
+ConditionPathIsMountPoint=/sys/fs/bpf
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Path to the installed binary
+ExecStart=/usr/local/sbin/bpf_lsm_policy_loader
+
+[Install]
+WantedBy=sysinit.target
