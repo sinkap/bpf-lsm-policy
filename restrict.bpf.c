@@ -3,6 +3,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
 #include <errno.h>
+#include "bpf_lsm_policy.h"
 
 #define BPF_FS_MAGIC 0xCAFE4A11
 
@@ -21,23 +22,21 @@ extern const void bpf_link_fops __ksym;
 SEC("lsm/inode_unlink")
 int BPF_PROG(restrict_inode_unlink, struct inode *dir, struct dentry *dentry)
 {
+    struct inode *inode= dentry->d_inode;
     struct bpf_link *link;
 
-    if (dentry->d_sb->s_magic != BPF_FS_MAGIC ||
-        dentry->d_inode->i_op != &bpf_link_iops)
+    if (dentry->d_sb->s_magic != BPF_FS_MAGIC)
         return 0;
 
-    link = (struct bpf_link *)dentry->d_inode->i_private;
+    if (inode && inode->i_op != &bpf_link_iops)
+        return 0;
+
+    link = (struct bpf_link *)BPF_CORE_READ(inode, i_private);
     if (!link)
         return 0;
 
-    if (BPF_CORE_READ(link, prog, type) == BPF_PROG_TYPE_LSM) {
-        bpf_printk("bpf_lsm: intercepted unlink of LSM link\n");
-        if (!dry_run)
-            return -EPERM;
-        else
-            bpf_printk("bpf_lsm: would have blocked unlink\n");
-    }
+    if (BPF_CORE_READ(link, prog, type) == BPF_PROG_TYPE_LSM)
+        return BPF_LSM_DECISION(-EPERM, "bpf_lsm: intercepted unlink of LSM link\n");
 
     return 0;
 }
@@ -49,10 +48,8 @@ SEC("lsm/bpf")
 int BPF_PROG(restrict_bpf_load, int cmd, union bpf_attr *attr, unsigned int size)
 {
     if (cmd == BPF_PROG_LOAD) {
-        if (attr->prog_type == BPF_PROG_TYPE_LSM) {
-            bpf_printk("bpf_lsm: Blocked loading of new LSM program\n");
-            return -EPERM;
-        }
+        if (attr->prog_type == BPF_PROG_TYPE_LSM) 
+            return BPF_LSM_DECISION(-EPERM, "bpf_lsm: Blocked loading of new LSM program\n");
     }
 
     return 0;

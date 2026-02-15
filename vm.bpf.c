@@ -4,6 +4,7 @@
 #include <bpf/bpf_tracing.h>
 #include <linux/errno.h>
 #include <stdbool.h>
+#include "bpf_lsm_policy.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -31,11 +32,10 @@ int BPF_PROG(restrict_kvm_create, struct file *file, unsigned int cmd,
 
 	vm_running = __sync_val_compare_and_swap(&vm_system_lock, 0, 1);
 
-	if (vm_running) {
-		bpf_printk(
+	if (vm_running)
+		return BPF_LSM_DECISION(
+			-EPERM,
 			"KVM_CREATE_VM: Denied. System-wide VM lock is active.\n");
-		return -EPERM;
-	}
 
 	task_is_vm_owner = bpf_task_storage_get(&is_vm_owner, current, 0,
 						BPF_LOCAL_STORAGE_GET_F_CREATE);

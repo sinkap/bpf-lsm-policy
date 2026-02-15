@@ -1,3 +1,4 @@
+#include "bpf_lsm_policy.h"
 #include "vm.skel.h"
 #include "restrict.skel.h"
 #include <bpf/bpf.h>
@@ -37,12 +38,20 @@ static struct vm_bpf *vm_policy_init(void)
 	struct vm_bpf *skel;
 	int err;
 
-	skel = vm_bpf__open_and_load();
-	if (!skel) {
-		fprintf(stderr,
-			"Error: Failed to open and load VM BPF skeleton\n");
-		return NULL;
-	}
+// 1. OPEN (Allocates memory, safe to write to rodata)
+    skel = vm_bpf__open();
+    if (!skel) {
+        fprintf(stderr, "Error: Failed to open VM BPF skeleton\n");
+        return NULL;
+    }
+
+    BPF_LSM_SYNC_SKEL(skel);
+
+    err = vm_bpf__load(skel);
+    if (err) {
+        fprintf(stderr, "Error: Failed to load VM BPF: %d\n", err);
+        goto cleanup;
+    }
 
 	err = vm_bpf__attach(skel);
 	if (err) {
@@ -71,24 +80,20 @@ static struct restrict_bpf *finalize_lsm_policy(void)
 	struct restrict_bpf *skel;
 	int err;
 
-	skel = restrict_bpf__open();
-	if (!skel) {
-		fprintf(stderr,
-			"Error: Failed to open Restrict BPF skeleton\n");
-		return NULL;
-	}
+    skel = restrict_bpf__open();
+    if (!skel) {
+        fprintf(stderr, "Error: Failed to open Restrict BPF skeleton\n");
+        return NULL;
+    }
 
-	/* We disable auto-attach for the restrictive prog so we can control order */
-	bpf_program__set_autoattach(skel->progs.restrict_bpf_load, false);
+    bpf_program__set_autoattach(skel->progs.restrict_bpf_load, false);
+    BPF_LSM_SYNC_SKEL(skel);
 
-	err = restrict_bpf__load(skel);
-	if (err) {
-		fprintf(stderr, "Error: Failed to load Restrict BPF: %d\n",
-			err);
-		goto cleanup;
-	}
-
-	/* Attach normal policies (auto-attach enabled ones) */
+    err = restrict_bpf__load(skel);
+    if (err) {
+        fprintf(stderr, "Error: Failed to load Restrict BPF: %d\n", err);
+        goto cleanup;
+    }
 	err = restrict_bpf__attach(skel);
 	if (err) {
 		fprintf(stderr,
@@ -97,7 +102,6 @@ static struct restrict_bpf *finalize_lsm_policy(void)
 		goto cleanup;
 	}
 
-	/* 1. Pin the shield (unlink restriction) */
 	if (PIN_LINK(skel, restrict_inode_unlink))
 		goto cleanup;
 
@@ -137,6 +141,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+    bpf_lsm_init_env();
 	vm_skel = vm_policy_init();
 	if (!vm_skel) {
 		fprintf(stderr, "Fatal: VM policy initialization failed.\n");
