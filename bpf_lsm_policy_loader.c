@@ -1,4 +1,5 @@
 #include "vm.skel.h"
+#include "restrict.skel.h"
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <errno.h>
@@ -11,78 +12,151 @@
 
 #define PIN_PATH "/sys/fs/bpf/bpf_lsm_policy"
 
-static int pin_link(struct bpf_link *link, const char *name)
+#define PIN_LINK(skel, member) ({								        \
+	int __err = 0;										                \
+	struct bpf_link *__link = (skel)->links.member;				        \
+	const char *__path = PIN_PATH "/" #member;					        \
+														                \
+	if (!__link) {										                \
+		fprintf(stderr, "Error: Link '%s' is NULL\n", #member);		    \
+		__err = -EINVAL;								                \
+	} else {											                \
+		__err = bpf_link__pin(__link, __path);				            \
+		if (__err) {									                \
+			fprintf(stderr, "Error: Failed to pin '%s': %d\n",		    \
+				#member, __err);						                \
+		} else {										                \
+			printf("Info: Pinned link '%s' -> %s\n", #member, __path);	\
+		}												                \
+	}													                \
+	__err;												                \
+})
+
+static struct vm_bpf *vm_policy_init(void)
 {
-    char path[PATH_MAX];
-    int len, err;
+	struct vm_bpf *skel;
+	int err;
 
-    if (!link) {
-        fprintf(stderr, "Error: Link '%s' is NULL. Did attachment fail?\n", name);
-        return -EINVAL;
-    }
+	skel = vm_bpf__open_and_load();
+	if (!skel) {
+		fprintf(stderr,
+			"Error: Failed to open and load VM BPF skeleton\n");
+		return NULL;
+	}
 
-    len = snprintf(path, sizeof(path), "%s/%s_link", PIN_PATH, name);
-    if (len < 0 || len >= sizeof(path)) {
-        fprintf(stderr, "Error: Path too long for link '%s'\n", name);
-        return -ENAMETOOLONG;
-    }
+	err = vm_bpf__attach(skel);
+	if (err) {
+		fprintf(stderr, "Error: Failed to attach VM BPF: %d (%s)\n",
+			err, strerror(-err));
+		goto cleanup;
+	}
 
-    err = bpf_link__pin(link, path);
-    if (err) {
-        fprintf(stderr, "Error: Failed to pin link '%s' to '%s': %d (%s)\n", 
-                name, path, err, strerror(-err));
-        return err;
-    }
+	if (PIN_LINK(skel, restrict_kvm_create))
+		goto cleanup;
 
-    printf("Info: Pinned link '%s' -> %s\n", name, path);
-    return 0;
+	if (PIN_LINK(skel, release_vm_lock))
+		goto cleanup;
+
+	return skel;
+
+cleanup:
+	bpf_link__unpin(skel->links.release_vm_lock);
+	bpf_link__unpin(skel->links.restrict_kvm_create);
+	vm_bpf__destroy(skel);
+	return NULL;
+}
+
+static struct restrict_bpf *finalize_lsm_policy(void)
+{
+	struct restrict_bpf *skel;
+	int err;
+
+	skel = restrict_bpf__open();
+	if (!skel) {
+		fprintf(stderr,
+			"Error: Failed to open Restrict BPF skeleton\n");
+		return NULL;
+	}
+
+	/* We disable auto-attach for the restrictive prog so we can control order */
+	bpf_program__set_autoattach(skel->progs.restrict_bpf_load, false);
+
+	err = restrict_bpf__load(skel);
+	if (err) {
+		fprintf(stderr, "Error: Failed to load Restrict BPF: %d\n",
+			err);
+		goto cleanup;
+	}
+
+	/* Attach normal policies (auto-attach enabled ones) */
+	err = restrict_bpf__attach(skel);
+	if (err) {
+		fprintf(stderr,
+			"Error: Failed to attach Restrict BPF: %d (%s)\n", err,
+			strerror(-err));
+		goto cleanup;
+	}
+
+	/* 1. Pin the shield (unlink restriction) */
+	if (PIN_LINK(skel, restrict_inode_unlink))
+		goto cleanup;
+
+	skel->links.restrict_bpf_load =
+		bpf_program__attach(skel->progs.restrict_bpf_load);
+	if (!skel->links.restrict_bpf_load) {
+		err = -errno;
+		fprintf(stderr,
+			"Error: Failed to manually attach restrict_bpf_load: %d\n",
+			err);
+		goto cleanup;
+	}
+
+	if (PIN_LINK(skel, restrict_bpf_load))
+		goto cleanup;
+
+	return skel;
+
+cleanup:
+	bpf_link__unpin(skel->links.restrict_inode_unlink);
+	bpf_link__unpin(skel->links.restrict_bpf_load);
+	restrict_bpf__destroy(skel);
+	return NULL;
 }
 
 int main(int argc, char **argv)
 {
-    struct vm_bpf *skel = NULL;
-    int err;
+	struct vm_bpf *vm_skel = NULL;
+	struct restrict_bpf *restrict_skel = NULL;
 
-    setvbuf(stdout, NULL, _IONBF, 0);
-    setvbuf(stderr, NULL, _IONBF, 0);
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 
-    skel = vm_bpf__open_and_load();
-    if (!skel) {
-        fprintf(stderr, "Error: Failed to open and load BPF skeleton\n");
-        return 1;
-    }
+	if (mkdir(PIN_PATH, 0755) != 0 && errno != EEXIST) {
+		fprintf(stderr, "Error: Failed to create directory %s: %s\n",
+			PIN_PATH, strerror(errno));
+		return 1;
+	}
 
-    err = vm_bpf__attach(skel);
-    if (err) {
-        fprintf(stderr, "Error: Failed to attach BPF: %d (%s)\n", err, strerror(-err));
-        goto cleanup;
-    }
+	vm_skel = vm_policy_init();
+	if (!vm_skel) {
+		fprintf(stderr, "Fatal: VM policy initialization failed.\n");
+		return 1;
+	}
 
-    err = bpf_object__pin(skel->obj, PIN_PATH);
-    if (err) {
-        fprintf(stderr, "Error: Failed to pin BPF object to %s: %d (%s)\n",
-                PIN_PATH, err, strerror(-err));
-        goto cleanup;
-    }
+	restrict_skel = finalize_lsm_policy();
+	if (!restrict_skel) {
+		fprintf(stderr,
+			"Fatal: LSM lockdown failed. Rolling back VM policies...\n");
+		bpf_link__unpin(vm_skel->links.restrict_kvm_create);
+		bpf_link__unpin(vm_skel->links.release_vm_lock);
+		vm_bpf__destroy(vm_skel);
+		return 1;
+	}
 
-    err = pin_link(skel->links.restrict_kvm_create, "restrict_kvm_create");
-    if (err) {
-        goto cleanup_pinned;
-    }
+	printf("\nSuccess: All LSM policies loaded, pinned, and system locked down.\n");
 
-    err = pin_link(skel->links.release_vm_lock, "release_vm_lock");
-    if (err) {
-        goto cleanup_pinned;
-    }
+	vm_bpf__destroy(vm_skel);
+	restrict_bpf__destroy(restrict_skel);
 
-    printf("Success: LSM policies loaded and pinned.\n");
-    return 0;
-
-cleanup_pinned:
-    fprintf(stderr, "Error: Pinning failed, cleaning up...\n");
-    bpf_object__unpin(skel->obj, PIN_PATH);
-
-cleanup:
-    vm_bpf__destroy(skel);
-    return -err;
+	return 0;
 }
