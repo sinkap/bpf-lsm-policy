@@ -45,6 +45,18 @@ make
 
 This will compile the BPF programs, generate the BPF skeletons, and build the `bpf_lsm_policy_loader` executable.
 
+### Building with a specific kernel
+
+By default, the build process uses the BTF (BPF Type Format) information from the running kernel, located at `/sys/kernel/btf/vmlinux`. However, if you are building the BPF programs on a kernel that is different from the target kernel, or if the running kernel is missing some required structs or fields, you may need to provide the BTF information from a different kernel.
+
+This can be done by specifying the `BTF_VMLINUX` variable when running `make`:
+
+```bash
+make BTF_VMLINUX=/path/to/your/vmlinux
+```
+
+This is only required if the kernel that the BPF program is being built on does not have some fields or structs at all.
+
 ### Installation and Activation
 
 To install the loader and the systemd service, run:
