@@ -19,12 +19,31 @@ The project consists of a user-space loader and BPF programs that are attached t
 
 ### Policy Enforcement
 
-The policy can run in two modes, controlled by the `BPF_LSM_POLICY_ENFORCE` environment variable:
+The policy can run in two modes:
 
 *   **Permissive (Dry-Run)**: This is the default mode. The BPF programs will log policy violations (e.g., trying to create a second VM) via `bpf_printk`, but will not actually block the operation.
-*   **Enforce**: To enable this mode, set the environment variable `BPF_LSM_POLICY_ENFORCE=1` before running the loader. In this mode, policy violations are actively blocked with an `EPERM` (Permission denied) error.
+*   **Enforce**: In this mode, policy violations are actively blocked with an `EPERM` (Permission denied) error.
 
-The `bpf_lsm_policy_loader.service` does not set this variable by default, so the policy will be in dry-run mode. To enable enforcement mode for the service, you can edit the service file to set the environment variable.
+The mode is controlled by the `BPF_LSM_POLICY_ENFORCE` environment variable.
+
+#### Enabling Enforcement Mode at Boot
+
+To enable enforcement mode for the systemd service at boot, you can pass the following parameter to the kernel command line:
+
+```
+systemd.set_env=BPF_LSM_POLICY_ENFORCE=1
+```
+
+This sets the environment variable for the `systemd` manager. The included service file is configured to pass this variable to the `bpf_lsm_policy_loader` process, which will then activate the enforcement policy.
+
+#### Enabling Enforcement Mode Manually
+
+If you are running the loader manually, you can enable enforcement mode by setting the environment variable in your shell:
+
+```bash
+export BPF_LSM_POLICY_ENFORCE=1
+sudo /usr/local/sbin/bpf_lsm_policy_loader
+```
 
 ## Getting Started
 
