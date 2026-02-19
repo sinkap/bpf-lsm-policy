@@ -60,31 +60,43 @@ jobs:
         id: kernel
         run: echo "path=/boot/vmlinuz-$(uname -r)" >> $GITHUB_OUTPUT
 
-      - name: Run BPF Tests inside LVH
-        uses: cilium/little-vm-helper@main
-        with:
-          test-name: 'bpf-lsm-test'
-          # Point the Action directly to our freshly built (or cached) image
-          image: '.lvh/images/bpf-lsm-tester.qcow2'
-          
-          # Use the runner's kernel, but inject the crucial BPF LSM boot parameters
-          kernel: ${{ steps.kernel.outputs.path }}
-          kernel-args: 'lsm=bpf,apparmor root=/dev/sda rw console=ttyS0'
-          
-          host-mount: '.'
-          # Skip provisioning since our image is already fully configured
-          provision: 'false' 
-          
-          cmd: |
+      - name: Boot the VM with BPF LSM
+        run: |
+          echo "Booting LVH VM in the background..."
+
+          # We use the raw CLI here because it supports --kernel-args
+          sudo lvh run \
+            --image .lvh/images/bpf-lsm-tester.qcow2 \
+            --kernel /boot/vmlinuz-$(uname -r) \
+            --kernel-args "lsm=bpf,apparmor root=/dev/vda rw console=ttyS0" \
+            --host-mount $(pwd) \
+            --daemonize \
+            -p 2222:22
+
+          echo "Waiting for the guest SSH daemon to respond..."
+          # The smart wait loop we discussed earlier
+          while ! nc -w 1 localhost 2222 | grep -q "SSH"; do
+            sleep 2
+          done
+          echo "✅ SSH is up and ready!"
+
+      - name: Run BPF Tests inside VM
+        run: |
+          echo "--- Executing tests inside the VM ---"
+
+          # SSH into the VM and run the test payload
+          ssh -p 2222 -o StrictHostKeyChecking=no root@localhost << 'EOF'
             set -ex
-            echo "--- Inside the VM ---"
+
             echo "Kernel: $(uname -r)"
             echo "Active LSMs: $(cat /sys/kernel/security/lsm)"
-            
+
+            # The CLI --host-mount flag maps your GitHub workspace to /host
             cd /host
             echo "Workspace contents:"
             ls -la
-            
-            # TODO: Add your compilation and bpftool load commands here
-            # make
-            # sudo bpftool prog load ./my_policy.o /sys/fs/bpf/test
+
+            # TODO: Your actual build and load commands go here!
+            # make clean && make
+            # bpftool prog load ./my_policy.o /sys/fs/bpf/test
+          EOF
