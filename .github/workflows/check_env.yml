@@ -45,12 +45,12 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .lvh/images/
-          key: lvh-image-${{ hashFiles('.lvh/**') }}
+          key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
 
       - name: Build VM Image
         if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
         run: |
-          echo "Cache missed or images.json changed. Building fresh image..."
+          echo "Cache missed. Building fresh image..."
           sudo -E lvh images build --dir .lvh
 
       - name: Save LVH Image Cache
@@ -58,7 +58,8 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .lvh/images/
-          key: lvh-image-${{ hashFiles('.lvh/images.json') }}
+          # Must match the restore key exactly!
+          key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
 
       - name: Boot the VM with BPF LSM
         run: |
