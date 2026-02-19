@@ -31,7 +31,7 @@ The mode is controlled by the `BPF_LSM_POLICY_ENFORCE` environment variable.
 To enable enforcement mode for the systemd service at boot, you can pass the following parameter to the kernel command line:
 
 ```
-systemd.set_env=BPF_LSM_POLICY_ENFORCE=1
+systemd.setenv=BPF_LSM_POLICY_ENFORCE=1
 ```
 
 This sets the environment variable for the `systemd` manager. The included service file is configured to pass this variable to the `bpf_lsm_policy_loader` process, which will then activate the enforcement policy.
