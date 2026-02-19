@@ -13,7 +13,7 @@ volatile const __u8 enforce_mode = 0;
     int _ret;                                                    \
     if (enforce_mode) {                                          \
         bpf_printk("LSM [ENFORCE]: " fmt, ##__VA_ARGS__);        \
-        _ret = 0;                                                \
+        _ret = error_code;                                       \
     } else {                                                     \
         bpf_printk("LSM [DRY-RUN]: " fmt, ##__VA_ARGS__);        \
         _ret = 0;                                                \
