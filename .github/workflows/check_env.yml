@@ -20,10 +20,12 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Install libguestfs and QEMU (Required for building images)
+      - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils mmdebstrap debian-archive-keyring
+          
+          # Fix for Ubuntu 24.04 AppArmor namespace restrictions
           sudo apt-get remove -y passt || true
           sudo apt-get install -y slirp4netns
 
@@ -38,27 +40,25 @@ jobs:
           # Verify sudo can see it
           sudo lvh --help > /dev/null && echo "✅ LVH installed successfully!"
 
-      # --- THE MAGIC HAPPENS HERE ---
-      - name: Cache LVH Built Image
-        id: cache-lvh
-        uses: actions/cache@v4
+      - name: Restore LVH Image Cache
+        id: cache-lvh-restore
+        uses: actions/cache/restore@v4
         with:
-          # We tell GitHub to cache the output directory where LVH saves the image
           path: .lvh/images/
-          # The cache key is tied to the hash of your images.json. 
-          # If you change the JSON, the hash changes, and GitHub forces a rebuild.
           key: lvh-image-${{ hashFiles('.lvh/images.json') }}
 
-      - name: Build VM Image (Only on Cache Miss)
-        if: steps.cache-lvh.outputs.cache-hit != 'true'
+      - name: Build VM Image
+        if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
         run: |
           echo "Cache missed or images.json changed. Building fresh image..."
           sudo -E lvh images build --dir .lvh
-      # ------------------------------
 
-      - name: Get Host Kernel Path
-        id: kernel
-        run: echo "path=/boot/vmlinuz-$(uname -r)" >> $GITHUB_OUTPUT
+      - name: Save LVH Image Cache
+        if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .lvh/images/
+          key: lvh-image-${{ hashFiles('.lvh/images.json') }}
 
       - name: Boot the VM with BPF LSM
         run: |
@@ -67,14 +67,12 @@ jobs:
           # We use the raw CLI here because it supports --kernel-args
           sudo lvh run \
             --image .lvh/images/bpf-lsm-tester.qcow2 \
-            --kernel /boot/vmlinuz-$(uname -r) \
-            --kernel-args "lsm=bpf,apparmor root=/dev/vda rw console=ttyS0" \
             --host-mount $(pwd) \
             --daemonize \
             -p 2222:22
 
           echo "Waiting for the guest SSH daemon to respond..."
-          # The smart wait loop we discussed earlier
+          # The smart wait loop to prevent "Connection Refused"
           while ! nc -w 1 localhost 2222 | grep -q "SSH"; do
             sleep 2
           done
