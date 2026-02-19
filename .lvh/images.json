@@ -1,0 +1,39 @@
+[
+    {
+        "name": "bpf-lsm-tester.qcow2",
+        "packages": [
+            "bpftool",
+            "qemu-utils",
+            "ca-certificates",
+            "curl",
+            "iproute2",
+            "openssh-server",
+            "sudo",
+            "util-linux",
+            "binutils",
+            "make",
+            "git",
+            "clang",
+            "llvm",
+            "libbpf-dev",
+            "libelf-dev"
+        ],
+        "actions": [
+            {
+                "comment": "disable password for root",
+                "op": { "Cmd": "passwd -d root" },
+                "type": "run-command"
+            },
+            {
+                "comment": "Configure SSH to allow root login without a password",
+                "op": { "Cmd": "sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config && sed -i 's/^#PermitEmptyPasswords.*/PermitEmptyPasswords yes/g' /etc/ssh/sshd_config" },
+                "type": "run-command"
+            },
+            {
+                "comment": "Restart SSH service to apply changes",
+                "op": { "Cmd": "systemctl enable ssh" },
+                "type": "run-command"
+            }
+        ]
+    }
+]
