@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils mmdebstrap debian-archive-keyring
-          
+
           # Fix for Ubuntu 24.04 AppArmor namespace restrictions
           sudo apt-get remove -y passt || true
           sudo apt-get install -y slirp4netns
@@ -45,7 +45,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .lvh/images/
-          key: lvh-image-${{ hashFiles('.lvh/images.json') }}
+          key: lvh-image-${{ hashFiles('.lvh/**') }}
 
       - name: Build VM Image
         if: steps.cache-lvh-restore.outputs.cache-hit != 'true'

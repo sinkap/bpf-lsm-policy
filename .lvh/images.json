@@ -3,7 +3,6 @@
         "name": "bpf-lsm-tester.qcow2",
         "packages": [
             "bpftool",
-            "qemu-utils",
             "ca-certificates",
             "curl",
             "iproute2",
@@ -16,22 +15,45 @@
             "clang",
             "llvm",
             "libbpf-dev",
-            "libelf-dev"
+            "libelf-dev",
+            "systemd-resolved",
+            "qemu-utils"
         ],
         "actions": [
             {
                 "comment": "disable password for root",
-                "op": { "Cmd": "passwd -d root" },
+                "op": {
+                    "Cmd": "passwd -d root"
+                },
                 "type": "run-command"
             },
             {
-                "comment": "Configure SSH to allow root login without a password",
-                "op": { "Cmd": "sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config && sed -i 's/^#PermitEmptyPasswords.*/PermitEmptyPasswords yes/g' /etc/ssh/sshd_config" },
+                "comment": "copy the scripts directory into the root of the VM",
+                "op": {
+                    "LocalPath": "scripts",
+                    "RemoteDir": "/"
+                },
+                "type": "copy-in"
+            },
+            {
+                "comment": "execute the copied network script",
+                "op": {
+                    "Cmd": "/scripts/networkd.sh"
+                },
                 "type": "run-command"
             },
             {
-                "comment": "Restart SSH service to apply changes",
-                "op": { "Cmd": "systemctl enable ssh" },
+                "comment": "execute the copied sshd script",
+                "op": {
+                    "Cmd": "/scripts/sshd.sh"
+                },
+                "type": "run-command"
+            },
+            {
+                "comment": "clean up the scripts so they don't bloat the final image",
+                "op": {
+                    "Cmd": "rm -rf /scripts"
+                },
                 "type": "run-command"
             }
         ]
