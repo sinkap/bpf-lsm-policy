@@ -6,35 +6,78 @@ on:
     branches: [ "main" ]
 
 jobs:
-  test-bpf:
+  test-lsm:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Enable Nested VM Support (KVM)
-        # This single line is what allows QEMU to pass hardware acceleration 
-        # to the guest VM so it boots in seconds.
+      - name: Enable Host KVM Access (Hardware Acceleration)
         run: sudo chmod 666 /dev/kvm
 
-      - name: Run BPF Tests in LVH
+      - name: Set up Go (Required to install LVH CLI for building)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install libguestfs and QEMU (Required for building images)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils
+
+      - name: Install LVH CLI
+        run: |
+          go install github.com/cilium/little-vm-helper/cmd/lvh@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      # --- THE MAGIC HAPPENS HERE ---
+      - name: Cache LVH Built Image
+        id: cache-lvh
+        uses: actions/cache@v4
+        with:
+          # We tell GitHub to cache the output directory where LVH saves the image
+          path: .lvh/images/
+          # The cache key is tied to the hash of your images.json. 
+          # If you change the JSON, the hash changes, and GitHub forces a rebuild.
+          key: lvh-image-${{ hashFiles('.lvh/images.json') }}
+
+      - name: Build VM Image (Only on Cache Miss)
+        if: steps.cache-lvh.outputs.cache-hit != 'true'
+        run: |
+          echo "Cache missed or images.json changed. Building fresh image..."
+          # force_tcg prevents libguestfs from failing in GitHub's nested environment
+          sudo LIBGUESTFS_BACKEND_SETTINGS=force_tcg lvh images build --dir .lvh
+      # ------------------------------
+
+      - name: Get Host Kernel Path
+        id: kernel
+        run: echo "path=/boot/vmlinuz-$(uname -r)" >> $GITHUB_OUTPUT
+
+      - name: Run BPF Tests inside LVH
         uses: cilium/little-vm-helper@main
         with:
-          test-name: 'lsm-test'
-          image: 'kind'
-          image-version: 'bpf-next' 
+          test-name: 'bpf-lsm-test'
+          # Point the Action directly to our freshly built (or cached) image
+          image: '.lvh/images/bpf-lsm-tester.qcow2'
+          
+          # Use the runner's kernel, but inject the crucial BPF LSM boot parameters
+          kernel: ${{ steps.kernel.outputs.path }}
+          kernel-args: 'lsm=bpf,apparmor root=/dev/sda rw console=ttyS0'
+          
           host-mount: '.'
-          install-dependencies: 'true'
+          # Skip provisioning since our image is already fully configured
+          provision: 'false' 
+          
           cmd: |
             set -ex
-            
-            echo "--- Booted inside the LVH VM! ---"
-            echo "Kernel Version: $(uname -r)"
+            echo "--- Inside the VM ---"
+            echo "Kernel: $(uname -r)"
             echo "Active LSMs: $(cat /sys/kernel/security/lsm)"
-
-            # The Action mounts your GitHub workspace here
-            cd /host
             
-            # TODO: Your actual build and load commands go here
-            # make clean && make
-            # bpftool prog load ./my_lsm_policy.o /sys/fs/bpf/policy
+            cd /host
+            echo "Workspace contents:"
+            ls -la
+            
+            # TODO: Add your compilation and bpftool load commands here
+            # make
+            # sudo bpftool prog load ./my_policy.o /sys/fs/bpf/test
