@@ -1,4 +1,4 @@
-name: BPF LSM Test Environment
+name: BPF LSM VM Env Check
 
 on:
   push:
@@ -6,43 +6,62 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-bpf-policy:
+  check-env-in-vm:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Check User and Root Access
-        run: |
-          echo "--- Sudo Access ---"
-          sudo whoami
-
-      - name: Check BTF (BPF Type Format) Support
-        run: |
-          echo "Looking for /sys/kernel/btf/vmlinux..."
-          if [ -f /sys/kernel/btf/vmlinux ]; then
-            echo "✅ BTF is available!"
-          else
-            echo "❌ BTF not found. Exiting."
-            exit 1
-          fi
-
-      - name: Check Kernel Config for BPF LSM (Compiled)
-        run: |
-          echo "Checking /boot/config-$(uname -r) for LSM configs..."
-          grep -E "CONFIG_BPF_LSM|CONFIG_LSM=" /boot/config-$(uname -r) || true
-
-      - name: Check Active LSMs (Runtime)
-        run: |
-          echo "Checking active LSMs in /sys/kernel/security/lsm..."
-          ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
-          echo "Active LSMs: $ACTIVE_LSMS"
-
-          if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
-            echo "✅ BPF is active in the LSM chain!"
-          else
-            echo "❌ BPF is NOT active in the LSM chain."
-            echo "Cannot attach BPF LSM programs on this kernel."
-            exit 1
-          fi
+      - name: Boot Custom VM and Check Environment
+        # This action boots an Ubuntu VM inside the GitHub Runner
+        uses: vmactions/ubuntu-vm@v1
+        with:
+          envs: 'GITHUB_WORKSPACE'
+          # Force BPF into the active LSM chain on boot
+          append-kernel-args: "lsm=landlock,lockdown,yama,integrity,apparmor,bpf"
+          usesh: true
+          # The run block executes INSIDE the booted VM as root
+          run: |
+            set -e
+            
+            echo "========================================"
+            echo "1. Checking Active LSMs"
+            echo "========================================"
+            ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
+            echo "Active LSMs: $ACTIVE_LSMS"
+            
+            if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
+              echo "✅ BPF IS ACTIVE!"
+            else
+              echo "❌ BPF is NOT active. Exiting."
+              exit 1
+            fi
+            
+            echo ""
+            echo "========================================"
+            echo "2. Checking BTF (BPF Type Format)"
+            echo "========================================"
+            if [ -f /sys/kernel/btf/vmlinux ]; then
+              echo "✅ BTF is available!"
+              ls -lh /sys/kernel/btf/vmlinux
+            else
+              echo "❌ BTF not found at /sys/kernel/btf/vmlinux."
+              exit 1
+            fi
+            
+            echo ""
+            echo "========================================"
+            echo "3. Checking Nested KVM Availability"
+            echo "========================================"
+            if [ -r /dev/kvm ]; then
+              echo "✅ /dev/kvm exists inside the VM."
+            else
+              echo "❌ /dev/kvm NOT found inside the VM."
+            fi
+            
+            echo "Installing cpu-checker to verify nested virtualization..."
+            apt-get update -qq
+            apt-get install -y -qq cpu-checker
+            
+            echo "Running kvm-ok..."
+            kvm-ok || true
