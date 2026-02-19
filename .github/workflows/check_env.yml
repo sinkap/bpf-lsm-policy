@@ -23,7 +23,9 @@ jobs:
       - name: Install libguestfs and QEMU (Required for building images)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils
+          sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils mmdebstrap debian-archive-keyring
+          sudo apt-get remove -y passt || true
+          sudo apt-get install -y slirp4netns
 
       - name: Install LVH CLI
         run: |
@@ -51,8 +53,7 @@ jobs:
         if: steps.cache-lvh.outputs.cache-hit != 'true'
         run: |
           echo "Cache missed or images.json changed. Building fresh image..."
-          # force_tcg prevents libguestfs from failing in GitHub's nested environment
-          sudo LIBGUESTFS_BACKEND_SETTINGS=force_tcg lvh images build --dir .lvh
+          sudo -E lvh images build --dir .lvh
       # ------------------------------
 
       - name: Get Host Kernel Path
