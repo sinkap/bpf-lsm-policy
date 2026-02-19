@@ -27,8 +27,14 @@ jobs:
 
       - name: Install LVH CLI
         run: |
+          echo "Compiling lvh from source..."
           go install github.com/cilium/little-vm-helper/cmd/lvh@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          
+          echo "Moving lvh to /usr/local/bin so sudo can find it..."
+          sudo mv $(go env GOPATH)/bin/lvh /usr/local/bin/
+          
+          # Verify sudo can see it
+          sudo lvh --help > /dev/null && echo "✅ LVH installed successfully!"
 
       # --- THE MAGIC HAPPENS HERE ---
       - name: Cache LVH Built Image
