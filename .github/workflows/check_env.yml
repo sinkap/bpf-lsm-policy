@@ -1,52 +1,40 @@
-name: BPF LSM Test Environment
+name: eBPF LSM Test
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
 
 jobs:
-  test-bpf-policy:
-    runs-on: ubuntu-22.04
-
+  test-bpf:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --- NEW: Check Permissions ---
-      - name: Check User and Root Access
-        run: |
-          echo "--- Current User ---"
-          whoami
-          id
-          
-          echo "--- Sudo Access ---"
-          # GitHub Actions runners run as the 'runner' user, but have passwordless sudo.
-          sudo whoami
-          sudo id
+      - name: Enable Nested VM Support (KVM)
+        # This single line is what allows QEMU to pass hardware acceleration 
+        # to the guest VM so it boots in seconds.
+        run: sudo chmod 666 /dev/kvm
 
-      # --- NEW: Check BTF Support ---
-      - name: Check BTF (BPF Type Format) Support
-        run: |
-          echo "Looking for /sys/kernel/btf/vmlinux..."
-          if [ -f /sys/kernel/btf/vmlinux ]; then
-            echo "✅ BTF is available!"
-            ls -lh /sys/kernel/btf/vmlinux
-          else
-            echo "❌ BTF not found at /sys/kernel/btf/vmlinux."
-            echo "Your BPF CO-RE programs might fail to load."
-            exit 1
-          fi
+      - name: Run BPF Tests in LVH
+        uses: cilium/little-vm-helper@main
+        with:
+          test-name: 'lsm-test'
+          image: 'kind'
+          image-version: 'bpf-next' 
+          host-mount: '.'
+          install-dependencies: 'true'
+          cmd: |
+            set -ex
+            
+            echo "--- Booted inside the LVH VM! ---"
+            echo "Kernel Version: $(uname -r)"
+            echo "Active LSMs: $(cat /sys/kernel/security/lsm)"
 
-      # Optional but recommended: Check if the runner kernel actually has BPF LSM enabled
-      - name: Check Kernel Config for BPF LSM
-        run: |
-          grep -E "CONFIG_BPF_LSM|CONFIG_LSM=" /boot/config-$(uname -r) || echo "Warning: Could not read config."
-          cat /sys/kernel/security/lsm
-
-      - name: Check KVM Availability
-        run: |
-          echo "Checking KVM..."
-          ls -l /dev/kvm || true
-          sudo apt-get update && sudo apt-get install -y cpu-checker
-          sudo kvm-ok || true
+            # The Action mounts your GitHub workspace here
+            cd /host
+            
+            # TODO: Your actual build and load commands go here
+            # make clean && make
+            # bpftool prog load ./my_lsm_policy.o /sys/fs/bpf/policy
