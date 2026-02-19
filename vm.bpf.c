@@ -10,7 +10,7 @@ char LICENSE[] SEC("license") = "GPL";
 
 #define KVM_CREATE_VM 0xAE01
 
-unsigned int vm_system_lock = 0;
+uint64_t vm_system_lock = 0;
 
 struct {
 	__uint(type, BPF_MAP_TYPE_TASK_STORAGE);
