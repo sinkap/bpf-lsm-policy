@@ -50,6 +50,13 @@
                 "type": "run-command"
             },
             {
+                "comment": "Run fstab setup to auto-mount /host",
+                "op": {
+                    "Cmd": "/scripts/fstab.sh"
+                },
+                "type": "run-command"
+            },
+            {
                 "comment": "clean up the scripts so they don't bloat the final image",
                 "op": {
                     "Cmd": "rm -rf /scripts"
