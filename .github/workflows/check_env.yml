@@ -13,40 +13,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --- NEW: Check Permissions ---
       - name: Check User and Root Access
         run: |
-          echo "--- Current User ---"
-          whoami
-          id
-          
           echo "--- Sudo Access ---"
-          # GitHub Actions runners run as the 'runner' user, but have passwordless sudo.
           sudo whoami
-          sudo id
 
-      # --- NEW: Check BTF Support ---
       - name: Check BTF (BPF Type Format) Support
         run: |
           echo "Looking for /sys/kernel/btf/vmlinux..."
           if [ -f /sys/kernel/btf/vmlinux ]; then
             echo "✅ BTF is available!"
-            ls -lh /sys/kernel/btf/vmlinux
           else
-            echo "❌ BTF not found at /sys/kernel/btf/vmlinux."
-            echo "Your BPF CO-RE programs might fail to load."
+            echo "❌ BTF not found. Exiting."
             exit 1
           fi
 
-      # Optional but recommended: Check if the runner kernel actually has BPF LSM enabled
-      - name: Check Kernel Config for BPF LSM
+      - name: Check Kernel Config for BPF LSM (Compiled)
         run: |
           echo "Checking /boot/config-$(uname -r) for LSM configs..."
-          grep -E "CONFIG_BPF_LSM|CONFIG_LSM=" /boot/config-$(uname -r) || echo "Warning: Could not read config."
+          grep -E "CONFIG_BPF_LSM|CONFIG_LSM=" /boot/config-$(uname -r) || true
 
-      - name: Check KVM Availability
+      - name: Check Active LSMs (Runtime)
         run: |
-          echo "Checking KVM..."
-          ls -l /dev/kvm || true
-          sudo apt-get update && sudo apt-get install -y cpu-checker
-          sudo kvm-ok || true
+          echo "Checking active LSMs in /sys/kernel/security/lsm..."
+          ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
+          echo "Active LSMs: $ACTIVE_LSMS"
+
+          if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
+            echo "✅ BPF is active in the LSM chain!"
+          else
+            echo "❌ BPF is NOT active in the LSM chain."
+            echo "Cannot attach BPF LSM programs on this kernel."
+            exit 1
+          fi
