@@ -68,6 +68,7 @@ jobs:
           sudo lvh run \
             --image .lvh/images/bpf-lsm-tester.qcow2 \
             --host-mount $(pwd) \
+            --cpu-kind host \
             --daemonize \
             -p 2222:22
 
@@ -78,23 +79,47 @@ jobs:
           done
           echo "✅ SSH is up and ready!"
 
-      - name: Run BPF Tests inside VM
+      - name: Verify KVM and eBPF Environment
         run: |
-          echo "--- Executing tests inside the VM ---"
 
-          # SSH into the VM and run the test payload
+          echo "::group::🐧 Connect to VM and Run Internal Checks"
+          # Run the internal checks and wrap their outputs in groups too!
           ssh -p 2222 -o StrictHostKeyChecking=no root@localhost << 'EOF'
             set -ex
 
-            echo "Kernel: $(uname -r)"
-            echo "Active LSMs: $(cat /sys/kernel/security/lsm)"
+            echo "::group::🔒 BPF LSM Check"
+            ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
+            echo "Found active LSMs: $ACTIVE_LSMS"
+            if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
+              echo "✅ BPF LSM is active."
+            else
+              echo "❌ BPF LSM is missing"
+              exit 1
+            fi
+            echo "::endgroup::"
 
-            # The CLI --host-mount flag maps your GitHub workspace to /host
+            echo "::group::🚀 Nested KVM Check"
+            if [ -c /dev/kvm ]; then
+              echo "✅ /dev/kvm is present inside the VM!"
+            else
+              echo "❌ /dev/kvm is missing inside the guest"
+              exit 1
+            fi
+            echo "::endgroup::"
+
+            echo "::group::🗃️ BTF vmlinux Check"
+            if [ -f /sys/kernel/btf/vmlinux ]; then
+              echo "✅ BTF vmlinux is present at /sys/kernel/btf/vmlinux."
+            else
+              echo "❌ BTF vmlinux is missing"
+              exit 1
+            fi
+            echo "::endgroup::"
+            
+            echo "::group::📁 Workspace Mount Check"
             cd /host
-            echo "Workspace contents:"
+            echo "Successfully mounted /host. Contents:"
             ls -la
-
-            # TODO: Your actual build and load commands go here!
-            # make clean && make
-            # bpftool prog load ./my_policy.o /sys/fs/bpf/test
+            echo "::endgroup::"
           EOF
+          echo "::endgroup::"
