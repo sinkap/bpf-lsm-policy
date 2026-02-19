@@ -33,10 +33,9 @@ jobs:
         run: |
           echo "Compiling lvh from source..."
           go install github.com/cilium/little-vm-helper/cmd/lvh@latest
-          
+
           echo "Moving lvh to /usr/local/bin so sudo can find it..."
-          sudo mv $(go env GOPATH)/bin/lvh /usr/local/bin/
-          
+
           # Verify sudo can see it
           sudo lvh --help > /dev/null && echo "✅ LVH installed successfully!"
 
@@ -116,7 +115,7 @@ jobs:
               exit 1
             fi
             echo "::endgroup::"
-            
+
             echo "::group::📁 Workspace Mount Check"
             cd /host
             echo "Successfully mounted /host. Contents:"

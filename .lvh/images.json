@@ -57,9 +57,9 @@
                 "type": "run-command"
             },
             {
-                "comment": "clean up the scripts so they don't bloat the final image",
+                "comment": "Enable BPF Enforcement",
                 "op": {
-                    "Cmd": "rm -rf /scripts"
+                    "Cmd": "/scripts/enforce-bpf-lsm.sh"
                 },
                 "type": "run-command"
             }
