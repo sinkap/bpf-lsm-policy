@@ -1,0 +1,93 @@
+name: Build and Start a VM with nested virt and BPF LSM enabled
+description: Installs dependencies, builds the VM (with caching), boots it, and waits for SSH.
+inputs:
+  image:
+    description: 'Path to the .qcow2 image to boot'
+    required: true
+    default: '.lvh/images/bpf-lsm-tester.qcow2'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Enable Host KVM Access
+      run: sudo chmod 666 /dev/kvm
+      shell: bash
+
+    - name: Install QEMU Runtime
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y qemu-system-x86 slirp4netns
+        sudo apt-get remove -y passt || true
+      shell: bash
+
+    - name: Restore LVH Image Cache
+      id: cache-lvh-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: .lvh/images/
+        key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
+
+    - name: Install Build Dependencies
+      if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
+      run: |
+        sudo apt-get install -y libguestfs-tools qemu-utils mmdebstrap debian-archive-keyring
+      shell: bash
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 'stable'
+        cache: false
+
+    - name: Cache LVH Binary
+      id: cache-lvh-bin
+      uses: actions/cache@v4
+      with:
+        path: ~/bin/lvh
+        key: lvh-bin-v0.0.28-${{ runner.os }}
+
+    - name: Compile LVH CLI
+      if: steps.cache-lvh-bin.outputs.cache-hit != 'true'
+      run: |
+        export GOBIN=$HOME/bin
+        mkdir -p $GOBIN
+        go install github.com/cilium/little-vm-helper/cmd/lvh@v0.0.28
+      shell: bash
+
+    - name: Link LVH to Path
+      run: |
+        sudo cp $HOME/bin/lvh /usr/local/bin/lvh
+      shell: bash
+
+    - name: Build VM Image
+      if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
+      run: sudo -E lvh images build --dir .lvh
+      shell: bash
+
+    - name: Save LVH Image Cache
+      if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: .lvh/images/
+        key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
+
+    - name: Boot VM
+      run: |
+        sudo lvh run \
+          --image ${{ inputs.image }} \
+          --host-mount $(pwd) \
+          --cpu-kind host \
+          --daemonize \
+          -p 2222:22
+      shell: bash
+
+    - name: Wait for SSH
+      run: |
+        while ! nc -w 1 localhost 2222 | grep -q "SSH"; do
+          sleep 2
+        done
+      shell: bash
+    - name: Verify Environment
+      uses: ./.github/actions/vm-command
+      with:
+        run: /host/.github/scripts/check_env.sh

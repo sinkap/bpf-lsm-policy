@@ -1,9 +1,6 @@
 #!/bin/bash
 set -e
 
-# Pull in your beautiful color logger
-source "$(dirname "$0")/common.sh"
-
 echo "::group::BPF LSM Check"
 ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
 log_info "Found active LSMs: $ACTIVE_LSMS"

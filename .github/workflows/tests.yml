@@ -12,83 +12,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Enable Host KVM Access (Hardware Acceleration)
-        run: sudo chmod 666 /dev/kvm
-
-      - name: Set up Go (Required to install LVH CLI for building)
-        uses: actions/setup-go@v5
+      - name: Build and Boot VM
+        uses: ./.github/actions/vm-start
         with:
-          go-version: 'stable'
-          cache-dependency-path: .github/workflows/tests.yml
+          image: .lvh/images/bpf-lsm-tester.qcow2
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libguestfs-tools qemu-system-x86 qemu-utils mmdebstrap debian-archive-keyring
-
-          # Fix for Ubuntu 24.04 AppArmor namespace restrictions
-          sudo apt-get remove -y passt || true
-          sudo apt-get install -y slirp4netns
-
-      - name: Install LVH CLI
-        run: |
-          echo "Compiling lvh from source..."
-          # Force the binary to install directly to a directory we control
-          export GOBIN=$HOME/bin
-          mkdir -p $GOBIN
-          go install github.com/cilium/little-vm-helper/cmd/lvh@latest
-
-          # Move it globally
-          sudo mv $GOBIN/lvh /usr/local/bin
-
-          # Verify sudo can see it
-          sudo lvh --help > /dev/null && echo "LVH installed successfully!"
-
-      - name: Restore LVH Image Cache
-        id: cache-lvh-restore
-        uses: actions/cache/restore@v4
+      - name: Only one VM on the system
+        uses: ./.github/actions/vm-command
         with:
-          path: .lvh/images/
-          key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
-
-      - name: Build VM Image
-        if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
-        run: |
-          echo "Cache missed. Building fresh image..."
-          sudo -E lvh images build --dir .lvh
-
-      - name: Save LVH Image Cache
-        if: steps.cache-lvh-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .lvh/images/
-          # Must match the restore key exactly!
-          key: lvh-image-${{ hashFiles('.lvh/images.json', '.lvh/scripts/*.sh') }}
-
-      - name: Boot the VM with BPF LSM
-        run: |
-          echo "Booting LVH VM in the background..."
-
-          # We use the raw CLI here because it supports --kernel-args
-          sudo lvh run \
-            --image .lvh/images/bpf-lsm-tester.qcow2 \
-            --host-mount $(pwd) \
-            --cpu-kind host \
-            --daemonize \
-            -p 2222:22
-
-          echo "Waiting for the guest SSH daemon to respond..."
-          # The smart wait loop to prevent "Connection Refused"
-          while ! nc -w 1 localhost 2222 | grep -q "SSH"; do
-            sleep 2
-          done
-          echo "SSH is up and ready!"
-      - name: Verify KVM and eBPF Environment
-        run: |
-          ssh -p 2222 -o StrictHostKeyChecking=no root@localhost 'cd /host && ./tests/check_env.sh'
-      - name: VM Policy Test
-        run: |
-          ssh -p 2222 -o StrictHostKeyChecking=no root@localhost << 'EOF'
-            cd /host
-            ./tests/vm-policy-test.sh
-          EOF
+          run: cd /host && ./tests/vm-policy-test.sh

@@ -1,12 +1,6 @@
 #!/bin/bash
 set -e
 
-source "$(dirname "$0")/common.sh"
-
-set -a
-[ -f /etc/environment ] && source /etc/environment
-set +a
-
 log_info "Active Enforcement Level: ${BPF_LSM_POLICY_ENFORCE:-0}"
 
 KERNEL_URL="http://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux"
