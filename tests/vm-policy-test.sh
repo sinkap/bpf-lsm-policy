@@ -1,6 +1,12 @@
 #!/bin/bash
 set -ex
 
+set -a
+[ -f /etc/environment ] && source /etc/environment
+set +a
+
+echo "Active Enforcement Level: ${BPF_LSM_POLICY_ENFORCE:-0}"
+
 KERNEL_URL="http://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux"
 KERNEL_FILE="vmlinuz-debian"
 
