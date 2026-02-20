@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go (Required to install LVH CLI for building)
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: 'stable'
 
       - name: Install System Dependencies
         run: |
@@ -32,9 +32,13 @@ jobs:
       - name: Install LVH CLI
         run: |
           echo "Compiling lvh from source..."
+          # Force the binary to install directly to a directory we control
+          export GOBIN=$HOME/bin
+          mkdir -p $GOBIN
           go install github.com/cilium/little-vm-helper/cmd/lvh@latest
 
-          echo "Moving lvh to /usr/local/bin so sudo can find it..."
+          # Move it globally
+          sudo mv $GOBIN/lvh /usr/local/bin
 
           # Verify sudo can see it
           sudo lvh --help > /dev/null && echo "✅ LVH installed successfully!"
