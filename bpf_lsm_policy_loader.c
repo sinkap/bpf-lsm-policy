@@ -33,6 +33,11 @@
 	__err;												                \
 })
 
+#define UNPIN_LINK(skel, member) do {               \
+    if ((skel)->links.member)                       \
+        bpf_link__unpin((skel)->links.member);      \
+} while (0)
+
 static struct vm_bpf *vm_policy_init(void)
 {
 	struct vm_bpf *skel;
@@ -69,8 +74,8 @@ static struct vm_bpf *vm_policy_init(void)
 	return skel;
 
 cleanup:
-	bpf_link__unpin(skel->links.release_vm_lock);
-	bpf_link__unpin(skel->links.restrict_kvm_create);
+	UNPIN_LINK(skel, restrict_kvm_create);
+	UNPIN_LINK(skel, release_vm_lock);
 	vm_bpf__destroy(skel);
 	return NULL;
 }
@@ -121,8 +126,8 @@ static struct restrict_bpf *finalize_lsm_policy(void)
 	return skel;
 
 cleanup:
-	bpf_link__unpin(skel->links.restrict_inode_unlink);
-	bpf_link__unpin(skel->links.restrict_bpf_load);
+	UNPIN_LINK(skel, restrict_bpf_load);
+	UNPIN_LINK(skel, restrict_inode_unlink);
 	restrict_bpf__destroy(skel);
 	return NULL;
 }
@@ -152,8 +157,8 @@ int main(int argc, char **argv)
 	if (!restrict_skel) {
 		fprintf(stderr,
 			"Fatal: LSM lockdown failed. Rolling back VM policies...\n");
-		bpf_link__unpin(vm_skel->links.restrict_kvm_create);
-		bpf_link__unpin(vm_skel->links.release_vm_lock);
+		UNPIN_LINK(vm_skel, restrict_kvm_create);
+		UNPIN_LINK(vm_skel, release_vm_lock);
 		vm_bpf__destroy(vm_skel);
 		return 1;
 	}
