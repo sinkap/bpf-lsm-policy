@@ -41,13 +41,20 @@
 static struct vm_bpf *vm_policy_init(void)
 {
 	struct vm_bpf *skel;
+	struct stat st;
 	int err;
 
-// 1. OPEN (Allocates memory, safe to write to rodata)
     skel = vm_bpf__open();
     if (!skel) {
         fprintf(stderr, "Error: Failed to open VM BPF skeleton\n");
         return NULL;
+    }
+
+	if (stat("/usr/bin/qemu-system-x86_64", &st) == 0) {
+        skel->bss->qemu_inode = st.st_ino;
+        printf("Info: Tracking QEMU emulator (Inode: %lu)\n", st.st_ino);
+    } else {
+        fprintf(stderr, "Warning: QEMU binary not found on disk. Software emulated VMs will not be blocked.\n");
     }
 
     BPF_LSM_SYNC_SKEL(skel);
@@ -71,11 +78,19 @@ static struct vm_bpf *vm_policy_init(void)
 	if (PIN_LINK(skel, release_vm_lock))
 		goto cleanup;
 
+	if (PIN_LINK(skel, restrict_qemu))
+		goto cleanup;
+
+	if (PIN_LINK(skel, vm_task_alloc))
+		goto cleanup;
+
 	return skel;
 
 cleanup:
 	UNPIN_LINK(skel, restrict_kvm_create);
 	UNPIN_LINK(skel, release_vm_lock);
+	UNPIN_LINK(skel, restrict_qemu);
+	UNPIN_LINK(skel, vm_task_alloc);
 	vm_bpf__destroy(skel);
 	return NULL;
 }
@@ -159,6 +174,8 @@ int main(int argc, char **argv)
 			"Fatal: LSM lockdown failed. Rolling back VM policies...\n");
 		UNPIN_LINK(vm_skel, restrict_kvm_create);
 		UNPIN_LINK(vm_skel, release_vm_lock);
+		UNPIN_LINK(vm_skel, restrict_qemu);
+		UNPIN_LINK(vm_skel, vm_task_alloc);
 		vm_bpf__destroy(vm_skel);
 		return 1;
 	}
