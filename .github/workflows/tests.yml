@@ -82,52 +82,12 @@ jobs:
             sleep 2
           done
           echo "SSH is up and ready!"
-
       - name: Verify KVM and eBPF Environment
         run: |
-
-          echo "::group::🐧 Connect to VM and Run Internal Checks"
-          # Run the internal checks and wrap their outputs in groups too!
+          ssh -p 2222 -o StrictHostKeyChecking=no root@localhost 'cd /host && ./tests/check_env.sh'
+      - name: VM Policy Test
+        run: |
           ssh -p 2222 -o StrictHostKeyChecking=no root@localhost << 'EOF'
-            set -ex
-
-            echo "::group::🔒 BPF LSM Check"
-            ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
-            echo "Found active LSMs: $ACTIVE_LSMS"
-            if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
-              echo "BPF LSM is active."
-            else
-              echo "BPF LSM is missing"
-              exit 1
-            fi
-            echo "::endgroup::"
-
-            echo "::group::🚀 Nested KVM Check"
-            if [ -c /dev/kvm ]; then
-              echo "/dev/kvm is present inside the VM!"
-            else
-              echo "/dev/kvm is missing inside the guest"
-              exit 1
-            fi
-            echo "::endgroup::"
-
-            echo "::group::🗃️ BTF vmlinux Check"
-            if [ -f /sys/kernel/btf/vmlinux ]; then
-              echo "BTF vmlinux is present at /sys/kernel/btf/vmlinux."
-            else
-              echo "BTF vmlinux is missing"
-              exit 1
-            fi
-            echo "::endgroup::"
-
-            echo "::group::📁 Workspace Mount Check"
-            cd /host
-            echo "Successfully mounted /host. Contents:"
-            ls -la
-            echo "::endgroup::"
-
-            echo "::group:: VM Policy Test"
             cd /host
             ./tests/vm-policy-test.sh
           EOF
-          echo "::endgroup::"
