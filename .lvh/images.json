@@ -17,7 +17,11 @@
             "libbpf-dev",
             "libelf-dev",
             "systemd-resolved",
-            "qemu-utils"
+            "qemu-utils",
+            "wget",
+            "cpio",
+            "qemu-system-x86",
+            "libc6-dev"
         ],
         "actions": [
             {

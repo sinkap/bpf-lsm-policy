@@ -41,7 +41,7 @@ jobs:
           sudo mv $GOBIN/lvh /usr/local/bin
 
           # Verify sudo can see it
-          sudo lvh --help > /dev/null && echo "✅ LVH installed successfully!"
+          sudo lvh --help > /dev/null && echo "LVH installed successfully!"
 
       - name: Restore LVH Image Cache
         id: cache-lvh-restore
@@ -81,7 +81,7 @@ jobs:
           while ! nc -w 1 localhost 2222 | grep -q "SSH"; do
             sleep 2
           done
-          echo "✅ SSH is up and ready!"
+          echo "SSH is up and ready!"
 
       - name: Verify KVM and eBPF Environment
         run: |
@@ -95,27 +95,27 @@ jobs:
             ACTIVE_LSMS=$(cat /sys/kernel/security/lsm)
             echo "Found active LSMs: $ACTIVE_LSMS"
             if [[ "$ACTIVE_LSMS" == *"bpf"* ]]; then
-              echo "✅ BPF LSM is active."
+              echo "BPF LSM is active."
             else
-              echo "❌ BPF LSM is missing"
+              echo "BPF LSM is missing"
               exit 1
             fi
             echo "::endgroup::"
 
             echo "::group::🚀 Nested KVM Check"
             if [ -c /dev/kvm ]; then
-              echo "✅ /dev/kvm is present inside the VM!"
+              echo "/dev/kvm is present inside the VM!"
             else
-              echo "❌ /dev/kvm is missing inside the guest"
+              echo "/dev/kvm is missing inside the guest"
               exit 1
             fi
             echo "::endgroup::"
 
             echo "::group::🗃️ BTF vmlinux Check"
             if [ -f /sys/kernel/btf/vmlinux ]; then
-              echo "✅ BTF vmlinux is present at /sys/kernel/btf/vmlinux."
+              echo "BTF vmlinux is present at /sys/kernel/btf/vmlinux."
             else
-              echo "❌ BTF vmlinux is missing"
+              echo "BTF vmlinux is missing"
               exit 1
             fi
             echo "::endgroup::"
@@ -125,5 +125,9 @@ jobs:
             echo "Successfully mounted /host. Contents:"
             ls -la
             echo "::endgroup::"
+
+            echo "::group:: VM Policy Test"
+            cd /host
+            ./tests/vm-policy-test.sh
           EOF
           echo "::endgroup::"

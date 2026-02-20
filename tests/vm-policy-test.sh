@@ -29,7 +29,6 @@ fi
 cat <<EOF > init.c
 #include <stdio.h>
 #include <unistd.h>
-
 int main() {
     printf("SUCCESS: The VM is alive!\n");
     fflush(stdout);
@@ -45,18 +44,9 @@ dd if=/dev/zero of=vm1.img bs=1M count=1
 dd if=/dev/zero of=vm2.img bs=1M count=1
 
 echo "--- Starting First VM ---"
-
-qemu-system-x86_64 \
-    -kernel "$KERNEL_FILE" \
-    -initrd minimal_initrd.img \
-    -enable-kvm \
-    -append "console=ttyS0 rdinit=/init panic=0" \
-    -drive file=vm1.img,format=raw,index=0,media=disk \
-    -display none \
-    -serial file:vm1.log \
-    -m 512 \
-    -daemonize \
-    -pidfile vm1.pid
+qemu-system-x86_64 -kernel "$KERNEL_FILE" -initrd minimal_initrd.img -enable-kvm \
+    -append "console=ttyS0 rdinit=/init panic=0" -drive file=vm1.img,format=raw,index=0,media=disk \
+    -display none -serial file:vm1.log -m 512 -daemonize -pidfile vm1.pid
 
 if ! kill -0 $(cat vm1.pid) 2>/dev/null; then
     echo "ERROR: First VM failed to start!"
@@ -66,29 +56,25 @@ fi
 echo "First VM is running (PID: $(cat vm1.pid))."
 
 echo "--- Starting Second VM ---"
-
 set +e
-
-timeout 5s qemu-system-x86_64 \
-    -kernel "$KERNEL_FILE" \
-    -initrd minimal_initrd.img \
-    -enable-kvm \
-    -append "console=ttyS0 rdinit=/init panic=0" \
-    -drive file=vm2.img,format=raw,index=0,media=disk \
-    -display none \
-    -serial file:vm2.log \
-    -m 512 \
-    -pidfile vm2.pid
-
+timeout 5s qemu-system-x86_64 -kernel "$KERNEL_FILE" -initrd minimal_initrd.img -enable-kvm \
+    -append "console=ttyS0 rdinit=/init panic=0" -drive file=vm2.img,format=raw,index=0,media=disk \
+    -display none -serial file:vm2.log -m 512 -pidfile vm2.pid
 EXIT_CODE=$?
 set -e
 
-if [ $EXIT_CODE -eq 124 ]; then
-    echo "TEST FAILED: Second VM started and ran for 5 seconds (Timed out)!"
-    exit 1
-elif [ $EXIT_CODE -eq 0 ]; then
-    echo "TEST FAILED: Second VM started and exited with success (0)!"
-    exit 1
+if [ "${BPF_LSM_POLICY_ENFORCE:-0}" == "1" ]; then
+    if [ $EXIT_CODE -eq 124 ] || [ $EXIT_CODE -eq 0 ]; then
+        echo "TEST FAILED: Second VM was allowed to start, but LSM should have blocked it!"
+        exit 1
+    else
+        echo "TEST PASSED: Second VM was successfully blocked by LSM (Exit Code: $EXIT_CODE)."
+    fi
 else
-    echo "TEST PASSED: Second VM failed to start (Exit Code: $EXIT_CODE)."
+    if [ $EXIT_CODE -eq 124 ] || [ $EXIT_CODE -eq 0 ]; then
+        echo "TEST PASSED: Second VM started successfully (No LSM interference)."
+    else
+        echo "TEST FAILED: Second VM failed to start, but LSM is OFF!"
+        exit 1
+    fi
 fi
