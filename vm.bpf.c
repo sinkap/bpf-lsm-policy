@@ -77,8 +77,8 @@ int BPF_PROG(restrict_kvm_create, struct file *file, unsigned int cmd,
 SEC("lsm/bprm_check_security")
 int BPF_PROG(restrict_qemu, struct linux_binprm *bprm)
 {
+    uint64_t ino = bprm->file->f_inode->i_ino;
     int err;
-    unsigned long ino = bprm->file->f_inode->i_ino;
 
     if (qemu_inode == 0 || ino != qemu_inode)
         return 0;
