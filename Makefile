@@ -1,7 +1,8 @@
 # Variables
-CLANG ?= clang
+CC ?= clang
+BPFCC ?= $(CC)
 BPFTOOL ?= bpftool
-ARCH := x86_64
+ARCH ?= $(shell uname -m)
 
 # List all your BPF source files here
 BPF_SRCS := vm.bpf.c restrict.bpf.c
@@ -13,7 +14,7 @@ BPF_SKELS := $(BPF_SRCS:.bpf.c=.skel.h)
 
 LOADER_SRC := bpf_lsm_policy_loader.c
 LOADER_BIN := bpf_lsm_policy_loader
-SERVICE_FILE := bpf_lsm_policy_loader.service
+SERVICE_FILE := bpf-lsm-policy-loader.service
 
 DESTDIR ?=
 BINDIR ?= /usr/local/sbin
@@ -22,11 +23,18 @@ UNITDIR ?= /etc/systemd/system
 CFLAGS := -g -O2 -Wall
 LIBS := -lbpf
 
-CLANG_BPF_SYS_INCLUDES := $(shell $(CLANG) -v -E - </dev/null 2>&1 \
+CLANG_BPF_SYS_INCLUDES := $(shell $(CC) -v -E - </dev/null 2>&1 \
     | sed -n '/<...> search starts here:/,/End of search list./{ s| \(/.*\)|-idirafter \1|p }')
 
+ifeq ($(ARCH),aarch64)
+	BPF_ARCH_FLAGS := -D__TARGET_ARCH_arm64 -D__aarch64__
+else ifeq ($(ARCH),x86_64)
+	BPF_ARCH_FLAGS := -D__TARGET_ARCH_x86 -D__x86_64__
+else
+	BPF_ARCH_FLAGS := -D__TARGET_ARCH_$(ARCH)
+endif
 
-BPF_CFLAGS := -g -O2 -target bpf -D__TARGET_ARCH_$(ARCH) -D__x86_64__ $(CLANG_BPF_SYS_INCLUDES)
+BPF_CFLAGS := -g -O2 -target bpf $(BPF_ARCH_FLAGS) $(CLANG_BPF_SYS_INCLUDES)
 
 .PHONY: all clean install uninstall load
 
@@ -34,7 +42,7 @@ all: $(LOADER_BIN)
 
 %.bpf.o: %.bpf.c kernel_types.bpf.h bpf_lsm_policy.h
 	@echo "Compiling BPF object: $@"
-	$(CLANG) $(BPF_CFLAGS) -I. -c $< -o $@
+	$(BPFCC) $(BPF_CFLAGS) -I. -c $< -o $@
 
 %.skel.h: %.bpf.o
 	@echo "Generating skeleton: $@"
@@ -42,7 +50,7 @@ all: $(LOADER_BIN)
 
 $(LOADER_BIN): $(LOADER_SRC) $(BPF_SKELS)
 	@echo "Compiling loader..."
-	$(CLANG) $(CFLAGS) -I. $(LOADER_SRC) -o $(LOADER_BIN) $(LIBS)
+	$(CC) $(CFLAGS) -I. $(LOADER_SRC) -o $(LOADER_BIN) $(LIBS)
 
 clean:
 	rm -f $(BPF_OBJS) $(BPF_SKELS) $(LOADER_BIN)
@@ -53,7 +61,8 @@ install: $(LOADER_BIN)
 	install -m 755 $(LOADER_BIN) $(DESTDIR)$(BINDIR)/$(LOADER_BIN)
 	@echo "Installing service to $(DESTDIR)$(UNITDIR)..."
 	install -d $(DESTDIR)$(UNITDIR)
-	install -m 644 $(SERVICE_FILE) $(DESTDIR)$(UNITDIR)/$(SERVICE_FILE)
+	sed 's|@BINDIR@|$(BINDIR)|g' $(SERVICE_FILE).in > $(DESTDIR)$(UNITDIR)/$(SERVICE_FILE)
+	chmod 644 $(DESTDIR)$(UNITDIR)/$(SERVICE_FILE)
 
 load: install
 	@echo "Reloading systemd and starting service..."
